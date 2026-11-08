@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Media Gallery</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #121212;
+            color: #ffffff;
+            font-family: sans-serif;
+            overflow: hidden;
+            touch-action: none; /* Prevents default browser zooming/scrolling */
+        }
+
+        #upload-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            width: 100%;
+            max-width: 300px;
+        }
+
+        input[type="file"] {
+            background: #2a2a2a;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            background-color: #007bff;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        #gallery-section {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            z-index: 10;
+        }
+
+        #image-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #gallery-img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            transform-origin: center;
+            will-change: transform;
+        }
+
+        #lock-btn {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            z-index: 20;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid white;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Upload Screen -->
+    <div id="upload-section">
+        <h2>Upload Media</h2>
+        <div class="input-group">
+            <label>Images (Required)</label>
+            <input type="file" id="image-upload" accept="image/*" multiple>
+        </div>
+        <div class="input-group">
+            <label>Background Music (Optional)</label>
+            <input type="file" id="audio-upload" accept="audio/*">
+        </div>
+        <button id="submit-btn">Submit</button>
+    </div>
+
+    <!-- Gallery Screen -->
+    <div id="gallery-section">
+        <button id="lock-btn">🔓</button>
+        <div id="image-container">
+            <img id="gallery-img" src="" alt="Gallery Image">
+        </div>
+        <audio id="bg-music" loop></audio>
+    </div>
+
+    <script>
+        const uploadSection = document.getElementById('upload-section');
+        const gallerySection = document.getElementById('gallery-section');
+        const imageUpload = document.getElementById('image-upload');
+        const audioUpload = document.getElementById('audio-upload');
+        const submitBtn = document.getElementById('submit-btn');
+        const galleryImg = document.getElementById('gallery-img');
+        const bgMusic = document.getElementById('bg-music');
+        const lockBtn = document.getElementById('lock-btn');
+
+        let images = [];
+        let currentIndex = 0;
+        let isLocked = false;
+
+        // Touch state variables
+        let scale = 1;
+        let startScale = 1;
+        let currentX = 0, currentY = 0;
+        let lastX = 0, lastY = 0;
+        let startX = 0, startY = 0;
+        let startDistance = 0;
+        let isDragging = false;
+
+        // Handle File Submission
+        submitBtn.addEventListener('click', () => {
+            if (imageUpload.files.length === 0) {
+                alert("Please upload at least one image.");
+                return;
+            }
+
+            images = Array.from(imageUpload.files).map(file => URL.createObjectURL(file));
+            
+            if (audioUpload.files.length > 0) {
+                bgMusic.src = URL.createObjectURL(audioUpload.files[0]);
+                bgMusic.play().catch(e => console.log("Audio playback requires user interaction", e));
+            }
+
+            loadGalleryImage(0);
+            uploadSection.style.display = 'none';
+            gallerySection.style.display = 'block';
+
+            // Push history state to trap the hardware back button later
+            history.pushState({ gallery: true }, null, window.location.href);
+        });
+
+        function loadGalleryImage(index) {
+            currentIndex = index;
+            galleryImg.src = images[currentIndex];
+            resetTransform();
+        }
+
+        // Lock / Unlock Logic
+        lockBtn.addEventListener('click', () => {
+            isLocked = !isLocked;
+            lockBtn.textContent = isLocked ? "🔒" : "🔓";
+        });
+
+        // Trap Back Navigation when Locked
+        window.addEventListener('popstate', (e) => {
+            if (isLocked) {
+                // If locked, force the state back forward
+                history.pushState({ gallery: true }, null, window.location.href);
+            } else if (gallerySection.style.display === 'block') {
+                // If unlocked and user hits back, close gallery
+                gallerySection.style.display = 'none';
+                uploadSection.style.display = 'flex';
+                bgMusic.pause();
+                bgMusic.src = "";
+            }
+        });
+
+        // Touch Gestures Math
+        const container = document.getElementById('image-container');
+
+        container.addEventListener('touchstart', (e) => {
+            if (isLocked) return;
+
+            if (e.touches.length === 2) {
+                // Pinch zoom start
+                startDistance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                startScale = scale;
+            } else if (e.touches.length === 1) {
+                // Pan / Swipe start
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+                isDragging = true;
+                galleryImg.style.transition = 'none'; // Remove snap transition while dragging
+            }
+        });
+
+        container.addEventListener('touchmove', (e) => {
+            if (isLocked) {
+                e.preventDefault();
+                return;
+            }
+
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                let currentDistance = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                
+                scale = startScale * (currentDistance / startDistance);
+                scale = Math.max(1, Math.min(scale, 5)); // Restrict zoom between 1x and 5x
+                applyTransform();
+            } else if (e.touches.length === 1 && isDragging) {
+                e.preventDefault();
+                let dx = e.touches[0].clientX - startX;
+                let dy = e.touches[0].clientY - startY;
+
+                if (scale > 1) {
+                    // Panning an already zoomed image
+                    currentX = lastX + dx;
+                    currentY = lastY + dy;
+                } else {
+                    // Swiping left/right to change image
+                    currentX = dx; 
+                }
+                applyTransform();
+            }
+        });
+
+        container.addEventListener('touchend', (e) => {
+            if (isLocked) return;
+
+            if (scale === 1 && isDragging) {
+                // Evaluate swipe threshold
+                const swipeThreshold = 50;
+                if (currentX > swipeThreshold && currentIndex > 0) {
+                    loadGalleryImage(currentIndex - 1);
+                } else if (currentX < -swipeThreshold && currentIndex < images.length - 1) {
+                    loadGalleryImage(currentIndex + 1);
+                } else {
+                    // Snap back if swipe wasn't far enough
+                    resetTransform(true);
+                }
+            }
+
+            // Save final positions for panning continuity
+            if (scale > 1) {
+                lastX = currentX;
+                lastY = currentY;
+            } else {
+                lastX = 0;
+                lastY = 0;
+                currentX = 0;
+                currentY = 0;
+            }
+
+            isDragging = false;
+        });
+
+        function applyTransform() {
+            galleryImg.style.transform = `translate(${currentX}px, ${currentY}px) scale(${scale})`;
+        }
+
+        function resetTransform(animate = false) {
+            scale = 1;
+            currentX = 0;
+            currentY = 0;
+            lastX = 0;
+            lastY = 0;
+            
+            if (animate) {
+                galleryImg.style.transition = 'transform 0.3s ease';
+            } else {
+                galleryImg.style.transition = 'none';
+            }
+            
+            applyTransform();
+        }
+    </script>
+</body>
+</html>
